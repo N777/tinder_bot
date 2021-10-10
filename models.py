@@ -29,7 +29,7 @@ class Marks(BaseModel):
 
 
 def connect_db():
-    psql_db.connect()
+    psql_db.connection()
     print("БД подключена")
 
 
@@ -39,7 +39,7 @@ def create_db():
            "Физика", "Химия",
            "Русский", "Литература"]
     for i in sub:
-        Subject.insert(title = i).execute()
+        Subject.insert(title = i).on_conflict_ignore().execute()
     close_db()
 
 
@@ -52,12 +52,15 @@ def check_user(user_id):
 
 def add(user_data):
     connect_db()
+    user_data['place_of_study'] = 1 if user_data['place_of_study'] == 'Университет' else 0
     if Users.get_or_none(user_data["user_id"]):
-        Users.update(name = " ".join(user_data["name"]), place = 0, form = 0,
-                     link = user_data["call"][0]).where(Users.user_id == user_data["user_id"]).execute()
+        Users.update(name = " ".join(user_data["name"]), place = user_data['place_of_study'],
+                     form = user_data['level_of_study'],
+                     link = user_data["call"]).where(Users.user_id == user_data["user_id"]).execute()
     else:
-        Users.insert(user_id = user_data["user_id"], name = " ".join(user_data["name"]), place = 0, form = 0,
-                     link = user_data["call"][0]).on_conflict_ignore().execute()  # plase and form удалить
+        Users.insert(user_id = user_data["user_id"], name = " ".join(user_data["name"]),
+                     place = user_data['place_of_study'], form = user_data['level_of_study'],
+                     link = user_data["call"]).on_conflict_ignore().execute()
     for i in user_data["subjects"]:
         sub = Subject.select(Subject.sub_id).where(Subject.title == i[0])
         print(sub[0])
@@ -71,12 +74,17 @@ def add(user_data):
 
 def find_person(user_id):
     connect_db()
+    user = Users.get_or_none(user_id)
     trouble = Marks.select(Marks.sub).where((Marks.user == user_id) & (Marks.mark < 7))
-    qq = Marks.select(Marks.user, fn.COUNT(Marks.sub), fn.SUM(Marks.mark)).where(
-        (Marks.user != user_id) & (Marks.mark > 6) & (Marks.sub.in_(trouble))).group_by(Marks.user).order_by(
+    qq = Marks.select(Marks.user, fn.COUNT(Marks.sub), fn.SUM(Marks.mark)).join_from(Marks, Users).where(
+        (Marks.user != user_id) & (Marks.mark > 6) & (Marks.sub.in_(trouble)) & (Users.form == user.form) & (Users.place == user.place)).group_by(Marks.user).order_by(
         -fn.COUNT(Marks.sub), -fn.SUM(Marks.mark))
     qq = qq.dicts()
-    res = Users.select(Users.name, Users.link).where(qq[0]['user']).dicts()
+    try:
+        res = Users.get_or_none(qq[0]['user'] == Users.user_id)
+        print(res)
+    except:
+        res = None
     close_db()
     return res
 
